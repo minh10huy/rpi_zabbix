@@ -5,9 +5,16 @@ services:
    context: ./server-pgsql/alpine
    cache_from:
     - alpine:3.4
-  image: zabbix-server-pgsql:alpine-3.4-local
+  #image: zabbix-server-pgsql:alpine-3.4-local
+  #image: zabbix-server-pgsql:ubuntu-local
+  #image: zabbix-server-pgsql:ubuntu-gammu
+  image: zabbix-server-pgsql:ubuntu-gammu-playsms
+  restart: always
   ports:
    - "10051:10051"
+  privileged: true
+  devices:
+   - "/dev/ttyUSB0:/dev/ttyUSB1"
   volumes:
    - /etc/localtime:/etc/localtime:ro
    - /etc/timezone:/etc/timezone:ro 
@@ -64,12 +71,26 @@ services:
    com.zabbix.dbtype: "pgsql"
    com.zabbix.os: "alpine"
 
+ phpmyadmin:
+   image: sk278/phpmyadmin-armhf
+   #environment:
+   #  - PMA_ARBITRARY=1
+   #  - MYSQL_USER=${MYSQL_USER}
+   #  - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+   #  - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+   volumes:
+     - ./mysql:/etc/mysql
+     - ./mysql:/var/lib/mysql
+   ports:
+     - "58080:80"
+
  zabbix-proxy-sqlite3:
   build:
    context: ./proxy-sqlite3/alpine
    cache_from:
     - alpine:3.4
   image: zabbix-proxy-sqlite3:alpine-3.4-local
+  restart: always
   ports:
    - "10061:10051"
   volumes:
@@ -81,6 +102,7 @@ services:
    - ./zbx_env/var/lib/zabbix/ssh_keys:/var/lib/zabbix/ssh_keys:ro
    - ./zbx_env/var/lib/zabbix/mibs:/var/lib/zabbix/mibs:ro
    - ./zbx_env/var/lib/zabbix/snmptraps:/var/lib/zabbix/snmptraps:ro
+   - ./zbx_env/zabbix-proxy-sqlite3:/usr/local/bin
   links:
    - zabbix-server:zabbix-server
    - zabbix-java-gateway:zabbix-java-gateway
@@ -125,6 +147,7 @@ services:
    cache_from:
     - alpine:3.4
   image: zabbix-web-nginx-pgsql:alpine-3.4-local
+  restart: always
   ports:
    - "8081:80"
    - "8443:443"
@@ -179,6 +202,7 @@ services:
    cache_from:
     - alpine:3.4
   image: zabbix-java-gateway:alpine-3.4-local
+  restart: always
   ports:
    - "10052:10052"
   deploy:
@@ -210,6 +234,7 @@ services:
    cache_from:
     - alpine:3.7
   image: zabbix-snmptraps:alpine-3.4-local
+  restart: always
   ports:
    - "162:162/udp"
   volumes:
@@ -237,6 +262,7 @@ services:
 
  postgres-server:
   image: postgres:latest
+  restart: always
   volumes:
    - ./zbx_env/var/lib/postgresql/data:/var/lib/postgresql/data:rw
   env_file:

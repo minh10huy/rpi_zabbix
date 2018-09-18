@@ -21,11 +21,14 @@ LABEL org.label-schema.name="zabbix-${ZBX_TYPE}-${ZBX_DB_TYPE}-ubuntu" \
       org.label-schema.license="GPL v2.0"
 
 STOPSIGNAL SIGTERM
-
+#RUN apt-get update -y
 RUN locale-gen $LC_ALL && \
     echo "#!/bin/sh\nexit 0" > /usr/sbin/policy-rc.d && \
-    DISTRIB_CODENAME=$(/bin/bash -c 'source /etc/lsb-release && echo $DISTRIB_CODENAME') && \
-    echo "deb http://us.archive.ubuntu.com/ubuntu/ $DISTRIB_CODENAME multiverse" >> /etc/apt/sources.list && \
+    #DISTRIB_CODENAME=$(/bin/bash -c 'source /etc/lsb-release && echo $DISTRIB_CODENAME') && \
+    #apt-get update -y && \
+    #echo "deb http://ports.ubuntu.com/ubuntu-ports/ $DISTRIB_CODENAME main" >> /etc/apt/sources.list && \
+    #echo "deb http://us.archive.ubuntu.com/ubuntu/ $DISTRIB_CODENAME multiverse" >> /etc/apt/sources.list && \
+    #echo "deb http://raspbian.raspberrypi.org/raspbian/ $DISTRIB_CODENAME multiverse" >> /etc/apt/sources.list && \
     addgroup --system --quiet zabbix && \
     adduser --quiet \
             --system --disabled-login \
@@ -160,13 +163,86 @@ RUN apt-get ${APT_FLAGS_COMMON} update && \
     apt-get ${APT_FLAGS_COMMON} autoremove && \
     rm -rf /var/lib/apt/lists/*
 
-EXPOSE 10051/TCP
+# gammu
+RUN apt-get -y update && \
+    apt-get -y install wvdial usb-modeswitch git
+RUN apt-get install -y gammu gammu-smsd
+RUN chown gammu:gammu -R /var/spool/gammu/
+RUN wget -q https://raw.githubusercontent.com/minh10huy/gammu-smsdrc/master/gammu-smsdrc -O /etc/gammu-smsdrc
+RUN ln -s /etc/gammu-smsdrc /etc/gammurc
+RUN sed -i 's/USER\=root2/USER\=gammu/g' /etc/init.d/gammu-smsd
+RUN mkdir -p /var/log/gammu
+RUN chown -R gammu:gammu /var/log/gammu
+RUN chmod 777 -R /var/log/gammu/
+RUN /etc/init.d/gammu-smsd start
+ADD gammu-smsd /etc/logrotate.d/
+RUN echo "zabbix ALL=NOPASSWD:/usr/bin/gammu-smsd-inject, /usr/bin/gammu" > /etc/sudoers.d/gammu && \
+    chmod 0440 /etc/sudoers.d/gammu
+ADD startsms.sh /mnt
+RUN chmod +x /mnt/startsms.sh
+RUN mkdir -p /opt/gammu
+ADD sms-parser.sh /opt/gammu/
+ADD a.sh /opt/gammu/
+ADD pong.sh /opt/gammu/
+ADD backup-fw.exp /opt/gammu/
+RUN /etc/init.d/gammu-smsd restart
+
+# debs
+ENV DEBIAN_FRONTEND noninteractive
+RUN apt-get -y update && \
+    apt-get -y install supervisor openssh-server pwgen apache2 libapache2-mod-php5 mysql-server php5 php5-cli php5-mysql php5-mcrypt php5-gd php5-imap php5-curl
+
+# ssh
+ADD docker_gammu/start-sshd.sh /start-sshd.sh
+ADD docker_gammu/supervisord-sshd.conf /etc/supervisor/conf.d/supervisord-sshd.conf
+#RUN mkdir /var/run/sshd
+RUN echo 'root:changemeplease' | chpasswd
+RUN sed -i 's/PermitRootLogin without-password/PermitRootLogin yes/' /etc/ssh/sshd_config
+RUN sed 's@session\s*required\s*pam_loginuid.so@session optional pam_loginuid.so@g' -i /etc/pam.d/sshd
+ENV NOTVISIBLE "in users profile"
+RUN echo "export VISIBLE=now" >> /etc/profile
+
+# apache2
+ADD docker_gammu/start-apache2.sh /start-apache2.sh
+ADD docker_gammu/supervisord-apache2.conf /etc/supervisor/conf.d/supervisord-apache2.conf
+ADD docker_gammu/apache_default /etc/apache2/sites-available/000-default.conf
+RUN echo "ServerName localhost" >> /etc/apache2/apache2.conf
+RUN a2enmod rewrite
+RUN rm -rf /var/www/html/*
+
+# mysql
+ADD docker_gammu/start-mysqld.sh /start-mysqld.sh
+ADD docker_gammu/supervisord-mysqld.conf /etc/supervisor/conf.d/supervisord-mysqld.conf
+ADD docker_gammu/create_mysql_admin_user.sh /create_mysql_admin_user.sh
+ADD docker_gammu/create_db.sh /create_db.sh
+ADD docker_gammu/my.cnf /etc/mysql/conf.d/my.cnf
+RUN rm -rf /var/lib/mysql/*
+
+# playsms
+ADD docker_gammu/start-playsmsd.sh /start-playsmsd.sh
+ADD docker_gammu/supervisord-playsmsd.conf /etc/supervisor/conf.d/supervisord-playsmsd.conf
+RUN rm -rf /app && mkdir /app && git clone --branch 1.4.2 --depth=1 https://github.com/antonraharja/playSMS.git /app
+ADD docker_gammu/install.conf /app/install.conf
+ADD docker_gammu/install.sh /install.sh
+
+# php
+ENV PHP_UPLOAD_MAX_FILESIZE 20M
+ENV PHP_POST_MAX_SIZE 20M
+
+# finalize scripts
+ADD docker_gammu/run.sh /run.sh
+RUN chmod +x /*.sh
+
+# Add volumes for MySQL
+VOLUME  ["/etc/mysql", "/var/lib/mysql" ]
+
+EXPOSE 22/TCP 80/TCP 3306/TCP 10051/TCP
 
 WORKDIR /var/lib/zabbix
 
 VOLUME ["/usr/lib/zabbix/alertscripts", "/usr/lib/zabbix/externalscripts", "/var/lib/zabbix/enc", "/var/lib/zabbix/mibs", "/var/lib/zabbix/modules"]
 VOLUME ["/var/lib/zabbix/snmptraps", "/var/lib/zabbix/ssh_keys", "/var/lib/zabbix/ssl/certs", "/var/lib/zabbix/ssl/keys", "/var/lib/zabbix/ssl/ssl_ca"]
-      
 COPY ["docker-entrypoint.sh", "/usr/bin/"]
 
 ENTRYPOINT ["docker-entrypoint.sh"]
+CMD ["/run.sh"]

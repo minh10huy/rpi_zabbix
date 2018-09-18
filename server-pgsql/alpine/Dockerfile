@@ -1,5 +1,6 @@
-FROM resin/raspberrypi3-alpine:3.4
-LABEL maintainer="Alexey Pustovalov <alexey.pustovalov@zabbix.com>"
+FROM resin/raspberrypi3-alpine:3.8
+#FROM resin/raspberrypi3-alpine:3.4
+LABEL maintainer="Huy To Dac <huy.td@gmail.com>"
 
 ARG BUILD_DATE
 ARG VCS_REF
@@ -98,7 +99,7 @@ RUN apk add ${APK_FLAGS_DEV} --virtual build-dependencies \
             --libdir=/usr/lib/zabbix \
             --prefix=/usr \
             --sysconfdir=/etc/zabbix \
-            --enable-agent \
+            #--enable-agent \
             --enable-${ZBX_TYPE} \
             --with-${ZBX_DB_TYPE} \
 # Does not support stable iksemel library
